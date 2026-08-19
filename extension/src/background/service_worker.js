@@ -106,7 +106,7 @@ async function startSearch(payload) {
         year_min: payload.yearMin || null,
         year_max: payload.yearMax || null,
         sources: payload.sources,
-        limit: payload.fetchAll ? 500 : payload.limit || 20,
+        limit: payload.fetchAll ? 10000 : payload.limit || 20,
         fetch_all: Boolean(payload.fetchAll),
       }),
       signal: controller.signal,

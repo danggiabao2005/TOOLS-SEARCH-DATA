@@ -140,7 +140,7 @@ Thấy `(.venv)` ở đầu dòng terminal là đúng. Health check: `GET http:/
 
 ### Pipeline
 
-1. **Fetch** song song: IEEE Xplore, ACM DL, Semantic Scholar, Google Scholar, OpenAlex, PubMed, Crossref, arXiv (+ Google Scholar bổ sung nếu &lt; 5 kết quả)
+1. **Fetch** chỉ các nguồn bạn chọn trên popup (không tự thêm nguồn khác). Tick **Lấy hết bài** để phân trang đến hết kết quả (trần an toàn 10.000/nguồn; Google Scholar ~100). Không tick thì dùng limit nhỏ. PICO vẫn chạy từng bài nên vài trăm bài sẽ lâu.
 2. **Dedup** 3 lớp: DOI → title chuẩn hóa → fuzzy (`rapidfuzz` ≥ 90 + year ±1)
 3. **Open access**: Unpaywall / Europe PMC khi abstract &lt; 100 ký tự
 4. **Extract**: LLM structured output (`instructor` + Pydantic `PICOResult`)

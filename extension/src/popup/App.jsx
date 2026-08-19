@@ -31,7 +31,27 @@ const ALL_SOURCES = [
 ];
 
 const DEFAULT_API = "http://127.0.0.1:8000";
-const FETCH_ALL_CAP = 500;
+const FETCH_ALL_CAP = 10000;
+
+function hydrateFormFromRequest(req, setters, { restoreSources = false } = {}) {
+  if (!req) return;
+  if (req.keywords) setters.setKeywords(req.keywords);
+  const yMin = req.yearMin ?? req.year_min;
+  const yMax = req.yearMax ?? req.year_max;
+  setters.setYearMin(yMin != null && yMin !== "" ? String(yMin) : "");
+  setters.setYearMax(yMax != null && yMax !== "" ? String(yMax) : "");
+  if (req.limit && !req.fetchAll && !req.fetch_all) {
+    setters.setLimit(req.limit);
+  }
+  if (typeof req.fetchAll === "boolean") {
+    setters.setFetchAll(req.fetchAll);
+  } else if (typeof req.fetch_all === "boolean") {
+    setters.setFetchAll(req.fetch_all);
+  }
+  if (restoreSources && Array.isArray(req.sources) && req.sources.length) {
+    setters.setSources(req.sources);
+  }
+}
 
 function StatusBanner({ status, message, error }) {
   if (status === "idle" && !message) return null;
@@ -70,8 +90,8 @@ export default function App() {
   const [yearMin, setYearMin] = useState("");
   const [yearMax, setYearMax] = useState("");
   const [limit, setLimit] = useState(15);
-  const [fetchAll, setFetchAll] = useState(false);
-  const [sources, setSources] = useState(ALL_SOURCES.map((s) => s.id));
+  const [fetchAll, setFetchAll] = useState(true);
+  const [sources, setSources] = useState([]);
   const [apiBase, setApiBase] = useState(DEFAULT_API);
 
   const [session, setSession] = useState({
@@ -87,14 +107,14 @@ export default function App() {
       if (res?.ok && res.session) {
         setSession(res.session);
         if (res.session.apiBase) setApiBase(res.session.apiBase);
-        if (res.session.request?.keywords) {
-          setKeywords(res.session.request.keywords);
-        }
-        if (typeof res.session.request?.fetchAll === "boolean") {
-          setFetchAll(res.session.request.fetchAll);
-        } else if (typeof res.session.request?.fetch_all === "boolean") {
-          setFetchAll(res.session.request.fetch_all);
-        }
+        hydrateFormFromRequest(res.session.request, {
+          setKeywords,
+          setYearMin,
+          setYearMax,
+          setLimit,
+          setFetchAll,
+          setSources,
+        }, { restoreSources: true });
       }
     });
   }, []);
@@ -213,8 +233,8 @@ export default function App() {
               value={yearMin}
               onChange={(e) => setYearMin(e.target.value)}
               disabled={isStreaming}
-              placeholder="2018"
-              className="mt-0.5 w-full rounded border border-ink-200 bg-white/90 px-2 py-1.5 text-[12px] outline-none focus:border-accent"
+              placeholder="yyyy"
+              className="mt-0.5 w-full rounded border border-ink-200 bg-white/90 px-2 py-1.5 text-[12px] outline-none focus:border-accent disabled:opacity-60"
             />
           </label>
           <label className="text-[10px] text-ink-700/60">
@@ -224,16 +244,16 @@ export default function App() {
               value={yearMax}
               onChange={(e) => setYearMax(e.target.value)}
               disabled={isStreaming}
-              placeholder="2025"
-              className="mt-0.5 w-full rounded border border-ink-200 bg-white/90 px-2 py-1.5 text-[12px] outline-none focus:border-accent"
+              placeholder="yyyy"
+              className="mt-0.5 w-full rounded border border-ink-200 bg-white/90 px-2 py-1.5 text-[12px] outline-none focus:border-accent disabled:opacity-60"
             />
           </label>
           <label className="text-[10px] text-ink-700/60">
-            Limit / nguồn
+            {fetchAll ? "Trần / nguồn" : "Limit / nguồn"}
             <input
               type="number"
               min={1}
-              max={500}
+              max={FETCH_ALL_CAP}
               value={fetchAll ? FETCH_ALL_CAP : limit}
               onChange={(e) => setLimit(e.target.value)}
               disabled={isStreaming || fetchAll}
@@ -251,10 +271,34 @@ export default function App() {
             onChange={(e) => setFetchAll(e.target.checked)}
           />
           <span>
-            Tất cả bài (tối đa {FETCH_ALL_CAP}/nguồn, phân trang đến hết kết quả).
-            Google Scholar tối đa ~100. PICO vẫn chạy từng bài nên sẽ lâu.
+            Lấy hết bài liên quan (không giới hạn thực tế; trần an toàn {FETCH_ALL_CAP.toLocaleString("vi-VN")}/nguồn).
+            Google Scholar tối đa ~100. PICO vẫn chạy từng bài nên vài trăm bài sẽ lâu.
           </span>
         </label>
+
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] font-medium text-ink-700/70">
+            Nguồn (bắt buộc chọn ít nhất 1)
+          </p>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              disabled={isStreaming}
+              onClick={() => setSources(ALL_SOURCES.map((s) => s.id))}
+              className="rounded border border-ink-200 bg-white/80 px-1.5 py-0.5 text-[10px] text-ink-700 hover:bg-ink-100 disabled:opacity-50"
+            >
+              Tất cả
+            </button>
+            <button
+              type="button"
+              disabled={isStreaming}
+              onClick={() => setSources([])}
+              className="rounded border border-ink-200 bg-white/80 px-1.5 py-0.5 text-[10px] text-ink-700 hover:bg-ink-100 disabled:opacity-50"
+            >
+              Bỏ chọn
+            </button>
+          </div>
+        </div>
 
         <div className="flex flex-wrap gap-1.5">
           {ALL_SOURCES.map((s) => {
