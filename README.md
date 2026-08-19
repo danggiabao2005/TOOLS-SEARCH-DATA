@@ -30,12 +30,32 @@ copy .env.example .env   # rồi điền OPENAI_API_KEY, UNPAYWALL_EMAIL, ...
 
 ### Chạy
 
-```bash
+Phải **bật `.venv` trước**, nếu không PowerShell sẽ báo `uvicorn is not recognized`.
+
+**Windows (PowerShell):**
+
+```powershell
 cd backend
+.\.venv\Scripts\activate
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Health check: `GET http://127.0.0.1:8000/health`
+Cách khác (không cần `activate`):
+
+```powershell
+cd backend
+.\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**macOS/Linux:**
+
+```bash
+cd backend
+source .venv/bin/activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Thấy `(.venv)` ở đầu dòng terminal là đúng. Health check: `GET http://127.0.0.1:8000/health`
 
 ### API chính
 
