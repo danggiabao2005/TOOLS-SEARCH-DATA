@@ -57,8 +57,12 @@ async def _run_pipeline(task_id: str) -> None:
 
     try:
         # Phase 2: Fetch
+        source_labels = ", ".join(s.value for s in task.request.sources)
         task.stage = TaskStage.FETCHING
-        task.message = "Đang quét đa nguồn..."
+        task.message = (
+            f"Đang quét {source_labels}"
+            + (" — lấy hết kết quả liên quan..." if task.request.fetch_all else "...")
+        )
         await _emit(
             task_id,
             "status",

@@ -40,6 +40,15 @@ def create_app() -> FastAPI:
     application.add_middleware(LocalNetworkAccessMiddleware)
     application.include_router(router, prefix="/api/v1")
 
+    @application.get("/")
+    async def root() -> dict[str, str]:
+        return {
+            "name": "Academic PICO Extractor",
+            "health": "/health",
+            "docs": "/docs",
+            "search": "POST /api/v1/tasks/pico-search",
+        }
+
     @application.get("/health")
     async def health() -> dict[str, object]:
         s = get_settings()
@@ -48,6 +57,7 @@ def create_app() -> FastAPI:
             "status": "ok",
             "llm_provider": s.llm_provider,
             "llm_model": model,
+            "openai_key_set": bool(s.openai_api_key.strip()),
             "gemini_key_set": bool(s.gemini_api_key.strip()),
         }
 

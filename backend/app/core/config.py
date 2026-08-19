@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     api_port: int = 8000
     cors_origins: str = "chrome-extension://*,http://localhost:*,http://127.0.0.1:*"
 
-    # LLM provider: "gemini" (free tier) | "openai"
-    llm_provider: Literal["gemini", "openai"] = "gemini"
+    # LLM provider: "gemini" | "openai"  (đọc từ .env LLM_PROVIDER)
+    llm_provider: Literal["gemini", "openai"] = "openai"
 
     # OpenAI
     openai_api_key: str = ""
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     http_timeout: float = 30.0
     max_retries: int = 3
     default_limit_per_source: int = 20
-    fetch_all_cap_per_source: int = 500
+    fetch_all_cap_per_source: int = 10000
 
     # Dedup
     fuzzy_title_threshold: float = 90.0

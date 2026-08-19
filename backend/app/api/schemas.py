@@ -38,21 +38,14 @@ class PicoSearchRequest(BaseModel):
     year_min: Optional[int] = Field(default=None, ge=1900, le=2100)
     year_max: Optional[int] = Field(default=None, ge=1900, le=2100)
     sources: list[SourceName] = Field(
-        default_factory=lambda: [
-            SourceName.IEEE_XPLORE,
-            SourceName.ACM_DL,
-            SourceName.SEMANTIC_SCHOLAR,
-            SourceName.GOOGLE_SCHOLAR,
-            SourceName.OPENALEX,
-            SourceName.PUBMED,
-            SourceName.ARXIV,
-            SourceName.CROSSREF,
-        ]
+        ...,
+        min_length=1,
+        description="Selected databases only — never implied defaults",
     )
     limit: int = Field(
         default=20,
         ge=1,
-        le=500,
+        le=10000,
         description="Max papers per source when fetch_all is false",
     )
     fetch_all: bool = Field(

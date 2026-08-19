@@ -47,41 +47,37 @@ class MultiSourceFetcher:
         async with httpx.AsyncClient(
             timeout=timeout, follow_redirects=True, headers=headers
         ) as client:
-            tasks: list[asyncio.Task[list[RawPaper]]] = []
-            scholar_queued = False
+            papers: list[RawPaper] = []
+            # Sequential when fetching large result sets to avoid 429 storms
+            run_serial = request.fetch_all or len(request.sources) <= 2
+            pending: list[SourceName] = []
             for source in request.sources:
-                if source in _SCHOLAR_SOURCES:
-                    if not self.settings.serpapi_key:
-                        logger.warning(
-                            "Google Scholar skipped: SERPAPI_KEY is not set"
-                        )
-                        continue
-                    scholar_queued = True
-                tasks.append(
+                if source in _SCHOLAR_SOURCES and not self.settings.serpapi_key:
+                    logger.warning(
+                        "Google Scholar skipped: SERPAPI_KEY is not set"
+                    )
+                    continue
+                pending.append(source)
+
+            if run_serial:
+                for source in pending:
+                    batch = await self._safe_fetch(client, source, request)
+                    papers.extend(batch)
+                    await asyncio.sleep(0.4)
+            else:
+                tasks = [
                     asyncio.create_task(
                         self._safe_fetch(client, source, request),
                         name=source.value,
                     )
-                )
-
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            papers: list[RawPaper] = []
-            for result in results:
-                if isinstance(result, BaseException):
-                    logger.warning("Source fetch failed: %s", result)
-                    continue
-                papers.extend(result)
-
-            if (
-                len(papers) < 5
-                and self.settings.serpapi_key
-                and not scholar_queued
-            ):
-                try:
-                    serp_papers = await self._fetch_serpapi(client, request)
-                    papers.extend(serp_papers)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Google Scholar fallback failed: %s", exc)
+                    for source in pending
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for result in results:
+                    if isinstance(result, BaseException):
+                        logger.warning("Source fetch failed: %s", result)
+                        continue
+                    papers.extend(result)
 
             return papers
 
@@ -108,7 +104,7 @@ class MultiSourceFetcher:
                 return []
             return await handler(client, request)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Fetcher error for %s: %s", source.value, exc)
+            logger.warning("Fetcher error for %s: %s", source.value, exc)
             return []
 
     async def _request_with_retry(
@@ -123,7 +119,11 @@ class MultiSourceFetcher:
             try:
                 response = await client.request(method, url, **kwargs)
                 if response.status_code in (429, 500, 502, 503, 504):
-                    wait = 2**attempt
+                    wait = (
+                        15 * (attempt + 1)
+                        if response.status_code == 429
+                        else min(20, 4 * (attempt + 1))
+                    )
                     logger.warning(
                         "HTTP %s for %s — retry in %ss (attempt %s)",
                         response.status_code,
@@ -176,28 +176,46 @@ class MultiSourceFetcher:
             y_max = request.year_max or 2100
             term = f"({term}) AND ({y_min}:{y_max}[dp])"
 
-        cap = self._source_cap(request)
-        search_resp = await self._request_with_retry(
-            client,
-            "GET",
-            f"{PUBMED_EUTILS}/esearch.fcgi",
-            params={
-                "db": "pubmed",
-                "term": term,
-                "retmax": min(cap, 10000),
-                "retmode": "json",
-                "sort": "relevance",
-            },
-        )
-        payload = search_resp.json().get("esearchresult", {})
-        id_list: list[str] = payload.get("idlist", [])
+        cap = min(self._source_cap(request), 10000)
+        id_list: list[str] = []
+        retstart = 0
+        page = min(10000, cap)
+        while len(id_list) < cap:
+            search_resp = await self._request_with_retry(
+                client,
+                "GET",
+                f"{PUBMED_EUTILS}/esearch.fcgi",
+                params={
+                    "db": "pubmed",
+                    "term": term,
+                    "retmax": min(page, cap - len(id_list)),
+                    "retstart": retstart,
+                    "retmode": "json",
+                    "sort": "relevance",
+                },
+            )
+            payload = search_resp.json().get("esearchresult", {})
+            batch = payload.get("idlist") or []
+            if not batch:
+                break
+            id_list.extend(str(pmid) for pmid in batch)
+            retstart += len(batch)
+            try:
+                total = int(payload.get("count") or 0)
+            except (TypeError, ValueError):
+                total = retstart
+            if retstart >= total or len(batch) < 1:
+                break
+
         if not id_list:
             return []
 
         papers: list[RawPaper] = []
-        for i in range(0, len(id_list), PUBMED_ID_BATCH):
+        for i in range(0, min(len(id_list), cap), PUBMED_ID_BATCH):
             chunk = id_list[i : i + PUBMED_ID_BATCH]
             papers.extend(await self._pubmed_hydrate(client, chunk))
+            if request.fetch_all:
+                await asyncio.sleep(0.15)
         return papers[:cap]
 
     async def _pubmed_hydrate(
