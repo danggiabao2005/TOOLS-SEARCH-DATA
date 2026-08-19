@@ -2,7 +2,66 @@
 
 Hệ thống hỗ trợ nghiên cứu khoa học: keyword → cào đa nguồn → dedup 3 lớp → trích xuất PICO → SSE realtime → xuất CSV/JSON/RIS.
 
+Repo: https://github.com/danggiabao2005/TOOLS-SEARCH-DATA
+
+## Chạy sau khi clone / pull GitHub (Windows)
+
+Cần sẵn: **Python 3.11+**, **Node.js 18+**, **Chrome**. GitHub **không** chứa `.venv`, `node_modules`, hay `.env` (có API key) — máy mới phải cài lại.
+
+### 1. Clone (nếu chưa có thư mục)
+
+```powershell
+git clone https://github.com/danggiabao2005/TOOLS-SEARCH-DATA.git
+cd TOOLS-SEARCH-DATA
+```
+
+Nếu đã clone rồi, chỉ cần `git pull` trong thư mục project.
+
+### 2. Backend — cài lần đầu
+
+Trong PowerShell, **không cần** `activate` (tránh lỗi *running scripts is disabled*):
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+copy .env.example .env
+```
+
+Mở `backend\.env`, điền:
+
+- `GEMINI_API_KEY=` key lấy tại https://aistudio.google.com/apikey
+- `UNPAYWALL_EMAIL=` và `CROSSREF_MAILTO=` email của bạn
+- `LLM_PROVIDER=gemini`
+- `GEMINI_MODEL=gemini-2.5-flash`
+
+### 3. Chạy API (giữ cửa sổ này mở)
+
+```powershell
+cd backend
+.\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Mở http://127.0.0.1:8000/health — phải thấy `"status":"ok"`.
+
+Lần sau chỉ cần bước 3 (venv và pip đã có).
+
+### 4. Chrome extension — cửa sổ PowerShell khác
+
+```powershell
+cd extension
+npm install
+npm run build
+```
+
+Chrome → `chrome://extensions` → bật **Developer mode** → **Load unpacked** → chọn thư mục `extension\dist`.
+
+Mở popup extension, API endpoint để `http://127.0.0.1:8000`, nhập keywords → **Bắt đầu quét PICO**.
+
+---
+
 ## Cấu trúc
+
 
 ```text
 pico-extractor-system/
@@ -14,33 +73,40 @@ pico-extractor-system/
 
 ### Setup
 
-```bash
+```powershell
 cd backend
 python -m venv .venv
+```
 
-# Windows
-.venv\Scripts\activate
+**Windows — cách chắc chắn nhất** (không cần `activate`, tránh lỗi *running scripts is disabled*):
 
-# macOS/Linux
-# source .venv/bin/activate
+```powershell
+.\.venv\Scripts\python -m pip install -r requirements.txt
+copy .env.example .env
+```
 
+Rồi sửa `.env` (điền `GEMINI_API_KEY` hoặc `OPENAI_API_KEY`, email Unpaywall, …).
+
+Nếu muốn `activate` trên PowerShell mà bị chặn script:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+.\.venv\Scripts\activate
+```
+
+**macOS/Linux:**
+
+```bash
+source .venv/bin/activate
 pip install -r requirements.txt
-copy .env.example .env   # rồi điền OPENAI_API_KEY, UNPAYWALL_EMAIL, ...
+cp .env.example .env
 ```
 
 ### Chạy
 
 Phải **bật `.venv` trước**, nếu không PowerShell sẽ báo `uvicorn is not recognized`.
 
-**Windows (PowerShell):**
-
-```powershell
-cd backend
-.\.venv\Scripts\activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Cách khác (không cần `activate`):
+**Windows (PowerShell)** — không cần `activate`:
 
 ```powershell
 cd backend
@@ -82,12 +148,11 @@ Thấy `(.venv)` ở đầu dòng terminal là đúng. Health check: `GET http:/
 
 ## Chrome Extension
 
-### Build
+### Build (nếu đã làm bước 4 ở trên thì bỏ qua)
 
-```bash
+```powershell
 cd extension
 npm install
-npm run icons
 npm run build
 ```
 
@@ -105,8 +170,8 @@ API mặc định: `http://127.0.0.1:8000` (chỉnh trong popup → API endpoint
 
 | Key | Bắt buộc | Mô tả |
 |-----|----------|--------|
-| `OPENAI_API_KEY` | Có (để extract thật) | Không có → stub PICO (dev) |
-| `OPENAI_MODEL` | Không | Mặc định `gpt-4o-mini` |
+| `GEMINI_API_KEY` | Có (khi `LLM_PROVIDER=gemini`) | Key Google AI Studio |
+| `OPENAI_API_KEY` | Chỉ khi dùng OpenAI | Không có key nào → PICO stub (dev) |
 | `UNPAYWALL_EMAIL` | Nên có | Email Unpaywall |
 | `CROSSREF_MAILTO` | Nên có | Polite pool Crossref |
 | `SEMANTIC_SCHOLAR_API_KEY` | Không | Tăng rate limit |
