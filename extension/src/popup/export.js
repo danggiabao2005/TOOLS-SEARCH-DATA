@@ -13,6 +13,7 @@ function escapeCsv(value) {
 function picoFields(paper) {
   const p = paper.pico || {};
   return {
+    paper_type: p.paper_type || "",
     population: p.population || "",
     intervention: p.intervention || "",
     comparison: p.comparison || "",
@@ -27,6 +28,7 @@ export function toCSV(papers) {
     "title",
     "authors",
     "year",
+    "paper_type",
     "doi",
     "source",
     "url",
@@ -44,6 +46,7 @@ export function toCSV(papers) {
       paper.title,
       (paper.authors || []).join("; "),
       paper.year ?? "",
+      pico.paper_type,
       paper.doi || "",
       (paper.sources || [paper.source]).join("+"),
       paper.url || "",
@@ -78,8 +81,9 @@ export function toRIS(papers) {
     if (paper.venue) lines.push(`JO  - ${paper.venue}`);
     const pico = paper.pico;
     if (pico) {
+      if (pico.paper_type) lines.push(`KW  - ${pico.paper_type}`);
       lines.push(
-        `N1  - PICO | P: ${pico.population} | I: ${pico.intervention} | C: ${pico.comparison} | O: ${(pico.outcomes || []).join("; ")} | Type: ${pico.study_type}`
+        `N1  - Type: ${pico.paper_type || ""} | PICO | P: ${pico.population} | I: ${pico.intervention} | C: ${pico.comparison} | O: ${(pico.outcomes || []).join("; ")} | Design: ${pico.study_type}`
       );
     }
     lines.push("ER  - ");

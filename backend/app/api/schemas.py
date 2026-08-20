@@ -68,7 +68,28 @@ class RawPaper(BaseModel):
     full_text_snippet: Optional[str] = None
 
 
+class PaperType(str, Enum):
+    """Contribution class used in SLR/mapping studies (SE + empirical research)."""
+
+    EMPIRICAL = "Empirical"
+    EXPERIMENT = "Experiment"
+    SURVEY = "Survey"
+    CASE_STUDY = "Case Study"
+    POSITION = "Position"
+    REPLICATION = "Replication"
+    REVIEW = "Review"
+    OTHER = "Other"
+
+
 class PICOResult(BaseModel):
+    paper_type: PaperType = Field(
+        description=(
+            "Loại bài theo contribution: Empirical (nghiên cứu thực nghiệm chung), "
+            "Experiment (thí nghiệm có kiểm soát), Survey (khảo sát/questionnaire), "
+            "Case Study, Position (ý kiến/vision, không đánh giá thực nghiệm), "
+            "Replication, Review (SLR/mapping/literature review), Other."
+        )
+    )
     population: str = Field(
         description="Đặc điểm người bệnh/đối tượng, tiêu chí chọn mẫu, bệnh lý nền"
     )
@@ -83,7 +104,7 @@ class PICOResult(BaseModel):
         description="Danh sách kết quả chính đo lường được kèm số liệu/p-value nếu có"
     )
     study_type: str = Field(
-        description="Phân loại: RCT, Meta-analysis, Cohort study, Case report, In-vitro, etc."
+        description="Phân loại thiết kế nghiên cứu: RCT, Meta-analysis, Cohort study, Case report, In-vitro, etc."
     )
     confidence_score: float = Field(
         ge=0.0,

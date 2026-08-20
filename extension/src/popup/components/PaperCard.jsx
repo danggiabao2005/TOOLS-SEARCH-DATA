@@ -29,6 +29,11 @@ export default function PaperCard({ paper }) {
               {paper.year ? ` · ${paper.year}` : ""}
             </p>
             <div className="mt-1.5 flex flex-wrap gap-1">
+              {pico?.paper_type && (
+                <span className="font-mono text-[9px] px-1.5 py-0.5 bg-accent text-white">
+                  {pico.paper_type}
+                </span>
+              )}
               {sources.map((s) => (
                 <span
                   key={s}

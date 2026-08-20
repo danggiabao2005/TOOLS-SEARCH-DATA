@@ -8,17 +8,28 @@ from typing import Optional
 import instructor
 from openai import AsyncOpenAI
 
-from app.api.schemas import PICOResult, RawPaper
+from app.api.schemas import PICOResult, PaperType, RawPaper
 from app.core.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_SYSTEM_PROMPT = """You are a clinical research librarian extracting PICO elements from academic papers.
+EXTRACTION_SYSTEM_PROMPT = """You are a research librarian extracting PICO elements and paper type from academic papers.
 Rules:
 - Chỉ trích xuất các thông tin được đề cập tường minh trong ngữ cảnh.
 - Không suy diễn hoặc bịa đặt dữ liệu (Zero Hallucination).
 - Nếu trường nào không có thông tin, đánh dấu là 'N/A'.
 - outcomes phải là danh sách các kết quả được nêu rõ; nếu không có thì ["N/A"].
+- paper_type MUST be exactly one of: Empirical, Experiment, Survey, Case Study, Position, Replication, Review, Other.
+  Use title + abstract:
+  • Experiment — controlled/lab experiment, A/B, subjects randomly assigned.
+  • Survey — questionnaire or interview survey of people.
+  • Case Study — industrial/organizational case study.
+  • Replication — explicitly a replication of prior work.
+  • Review — SLR, systematic mapping, literature review, meta-analysis of papers.
+  • Position — position, opinion, vision, or proposal without empirical evaluation.
+  • Empirical — other empirical work (mining, observational, mixed methods) that is not the types above.
+  • Other — tool demo, tutorial, editorial, or unclear.
+- study_type is the research design (RCT, Cohort, Case report, Controlled experiment, etc.), not paper_type.
 - confidence_score phản ánh mức độ rõ ràng của abstract (0.0–1.0).
 Respond in the same language as the source abstract when possible; use English if mixed.
 """
@@ -74,7 +85,7 @@ class PICOExtractor:
                     {
                         "role": "user",
                         "content": (
-                            "Extract PICO from the following paper context:\n\n"
+                            "Extract PICO and paper_type from the following paper context:\n\n"
                             f"{context}"
                         ),
                     },
@@ -87,6 +98,7 @@ class PICOExtractor:
             logger.exception("PICO extraction failed for '%s': %s", paper.title[:60], exc)
             reason = _friendly_llm_error(exc, self.settings.llm_provider)
             return PICOResult(
+                paper_type=PaperType.OTHER,
                 population=f"N/A ({reason})",
                 intervention=f"N/A ({reason})",
                 comparison="N/A",
@@ -100,6 +112,7 @@ class PICOExtractor:
         """Deterministic stub when no API key is configured (dev mode)."""
         has_abstract = bool(paper.abstract and len(paper.abstract) >= 50)
         return PICOResult(
+            paper_type=PaperType.OTHER,
             population="N/A (LLM API key not configured)",
             intervention="N/A (LLM API key not configured)",
             comparison="N/A",
