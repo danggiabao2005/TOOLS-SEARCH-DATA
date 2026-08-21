@@ -11,13 +11,10 @@ let activeAbort = null;
 let activeTaskId = null;
 
 const SESSION_KEY = "pico_session";
+const REVIEW_KEY = "pico_review";
 
 function localFetch(url, options = {}) {
-  return fetch(url, {
-    cache: "no-store",
-    targetAddressSpace: "loopback",
-    ...options,
-  });
+  return fetch(url, { cache: "no-store", ...options });
 }
 
 function describeNetworkError(err, apiBase) {
@@ -85,6 +82,7 @@ async function startSearch(payload) {
     apiBase,
     request: payload,
   });
+  await chrome.storage.local.remove(REVIEW_KEY);
 
   const controller = new AbortController();
   activeAbort = controller;
@@ -246,6 +244,25 @@ async function cancelSearch() {
   await saveSession({ status: "idle", message: "Đã hủy.", error: null });
 }
 
+async function resetStaleStreaming() {
+  const session = await loadSession();
+  if (session.status === "streaming" && !activeAbort) {
+    await saveSession({
+      status: "idle",
+      message: "Phiên trước bị gián đoạn — quét lại.",
+      error: null,
+    });
+  }
+}
+
+chrome.runtime.onStartup.addListener(() => {
+  resetStaleStreaming().catch(() => {});
+});
+chrome.runtime.onInstalled.addListener(() => {
+  resetStaleStreaming().catch(() => {});
+});
+resetStaleStreaming().catch(() => {});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
     if (message.type === "START_SEARCH") {
@@ -282,10 +299,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         papers: [],
         error: null,
       });
+      await chrome.storage.local.remove(REVIEW_KEY);
+      sendResponse({ ok: true });
+    } else if (message.type === "OPEN_REVIEW") {
+      await chrome.tabs.create({ url: chrome.runtime.getURL("review.html") });
       sendResponse({ ok: true });
     } else {
       sendResponse({ ok: false, error: "Unknown message" });
     }
-  })();
+  })().catch((err) => {
+    console.warn("message handler failed:", err);
+    try {
+      sendResponse({ ok: false, error: String(err?.message || err) });
+    } catch {
+      /* already responded */
+    }
+  });
   return true;
 });

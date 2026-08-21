@@ -92,12 +92,106 @@ export function toRIS(papers) {
   return blocks.join("\n\n");
 }
 
+export function toDedupCSV(papers, { keptIds, discardedIds }) {
+  const kept = new Set(keptIds);
+  const discarded = new Set(discardedIds);
+  const headers = [
+    "id",
+    "title",
+    "authors",
+    "year",
+    "doi",
+    "source",
+    "url",
+    "dup_cluster_id",
+    "dup_reason",
+    "dedup_decision",
+    "abstract",
+  ];
+  const rows = papers.map((paper) => {
+    let decision = "keep";
+    if (discarded.has(paper.id)) decision = "drop";
+    else if (kept.size && !kept.has(paper.id) && discarded.size) decision = "drop";
+    return [
+      paper.id,
+      paper.title,
+      (paper.authors || []).join("; "),
+      paper.year ?? "",
+      paper.doi || "",
+      (paper.sources || [paper.source]).join("+"),
+      paper.url || "",
+      paper.dup_cluster_id || "",
+      paper.dup_reason || "",
+      decision,
+      paper.abstract || "",
+    ]
+      .map(escapeCsv)
+      .join(",");
+  });
+  return [headers.join(","), ...rows].join("\n");
+}
+
+export function toScreeningCSV(papers, decisions) {
+  const headers = [
+    "id",
+    "title",
+    "authors",
+    "year",
+    "doi",
+    "source",
+    "url",
+    "verdict",
+    "reasons",
+    "by_ai",
+    "confidence_score",
+    "abstract",
+  ];
+  const rows = papers.map((paper) => {
+    const d = decisions[paper.id] || {};
+    return [
+      paper.id,
+      paper.title,
+      (paper.authors || []).join("; "),
+      paper.year ?? "",
+      paper.doi || "",
+      (paper.sources || [paper.source]).join("+"),
+      paper.url || "",
+      d.verdict || "",
+      (d.reasons || []).join("; "),
+      d.by_ai ? "ai" : "manual",
+      d.confidence_score ?? "",
+      paper.abstract || "",
+    ]
+      .map(escapeCsv)
+      .join(",");
+  });
+  return [headers.join(","), ...rows].join("\n");
+}
+
 function downloadBlob(filename, content, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
   chrome.downloads.download({ url, filename, saveAs: true }, () => {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   });
+}
+
+export function exportDedupCSV(papers, keepState) {
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadBlob(
+    `slr-dedup-${stamp}.csv`,
+    toDedupCSV(papers, keepState),
+    "text/csv;charset=utf-8"
+  );
+}
+
+export function exportScreeningCSV(papers, decisions) {
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadBlob(
+    `slr-screening-r1-${stamp}.csv`,
+    toScreeningCSV(papers, decisions),
+    "text/csv;charset=utf-8"
+  );
 }
 
 export function exportPapers(papers, format) {

@@ -128,6 +128,8 @@ class PaperWithPICO(BaseModel):
     arxiv_id: Optional[str] = None
     pico: Optional[PICOResult] = None
     extraction_error: Optional[str] = None
+    dup_cluster_id: Optional[str] = None
+    dup_reason: Optional[str] = None
 
 
 class StatusEvent(BaseModel):
@@ -156,3 +158,38 @@ class TaskState(BaseModel):
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     cancelled: bool = False
+
+
+class ScreeningVerdict(str, Enum):
+    INCLUDE = "include"
+    EXCLUDE = "exclude"
+    MAYBE = "maybe"
+
+
+class ScreenCriterion(BaseModel):
+    code: str
+    kind: str
+    meaning: str = ""
+
+
+class ScreenPaperIn(BaseModel):
+    id: str
+    title: str
+    abstract: Optional[str] = None
+    year: Optional[int] = None
+    authors: list[str] = Field(default_factory=list)
+
+
+class ScreenRequest(BaseModel):
+    criteria: list[ScreenCriterion] = Field(..., min_length=1)
+    papers: list[ScreenPaperIn] = Field(..., min_length=1, max_length=300)
+
+
+class ScreeningDecision(BaseModel):
+    paper_id: str = ""
+    verdict: ScreeningVerdict
+    reasons: list[str] = Field(
+        description="Protocol codes only, e.g. IC-P, EC-W. Empty if maybe with no clear code."
+    )
+    confidence_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    by_ai: bool = True

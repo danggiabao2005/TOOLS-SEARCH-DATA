@@ -1,0 +1,12 @@
+body.review-root {
+  width: 100% !important;
+  min-height: 100vh !important;
+  max-height: none !important;
+  overflow: auto !important;
+}
+
+body.review-root #root {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}

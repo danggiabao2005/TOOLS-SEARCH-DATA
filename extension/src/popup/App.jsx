@@ -7,6 +7,7 @@ import {
   FlaskConical,
   AlertCircle,
   CheckCircle2,
+  ClipboardList,
 } from "lucide-react";
 import PaperCard from "./components/PaperCard.jsx";
 import ExportButton from "./components/ExportButton.jsx";
@@ -22,7 +23,7 @@ const ALL_SOURCES = [
   {
     id: "google_scholar",
     label: "Google Scholar",
-    hint: "Phủ rộng nhất, dùng để bổ sung (cần SERPAPI_KEY)",
+    hint: "SerpAPI GET /search.json?engine=google_scholar (cần SERPAPI_KEY)",
   },
   { id: "openalex", label: "OpenAlex", hint: "Hoàn toàn mở, bulk export" },
   { id: "pubmed", label: "PubMed" },
@@ -179,10 +180,24 @@ export default function App() {
   };
 
   const handleClear = () => {
-    chrome.runtime.sendMessage({ type: "CLEAR_RESULTS" }, () => {
-      if (chrome.runtime.lastError) return;
-      refreshSession();
-    });
+    const clear = () => {
+      chrome.runtime.sendMessage({ type: "CLEAR_RESULTS" }, () => {
+        if (chrome.runtime.lastError) return;
+        refreshSession();
+      });
+    };
+    if (isStreaming) {
+      chrome.runtime.sendMessage({ type: "CANCEL_SEARCH" }, () => {
+        void chrome.runtime.lastError;
+        clear();
+      });
+      return;
+    }
+    clear();
+  };
+
+  const handleOpenReview = () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("review.html") });
   };
 
   const papers = session.papers || [];
@@ -202,7 +217,7 @@ export default function App() {
             PICO Extractor
           </p>
           <p className="mt-1 text-[11px] text-ink-700/70">
-            Tìm kiếm đa nguồn · Dedup · Trích xuất PICO realtime
+            Tìm kiếm đa nguồn · Dedup · Screening · PICO
           </p>
         </div>
       </header>
@@ -356,13 +371,21 @@ export default function App() {
           <button
             type="button"
             onClick={handleClear}
-            disabled={isStreaming}
-            title="Xóa kết quả"
-            className="rounded border border-ink-200 bg-white/80 p-2 text-ink-700 hover:bg-ink-100 disabled:opacity-40"
+            title="Xóa kết quả / bỏ trạng thái kẹt"
+            className="rounded border border-ink-200 bg-white/80 p-2 text-ink-700 hover:bg-ink-100"
           >
             <RotateCcw size={14} />
           </button>
         </div>
+        {(!keywords.trim() || !sources.length) && !isStreaming && (
+          <p className="text-[10px] text-ink-700/50">
+            {!keywords.trim() && !sources.length
+              ? "Nhập keywords và chọn ít nhất 1 nguồn (hoặc bấm Tất cả)."
+              : !keywords.trim()
+                ? "Nhập keywords để bắt đầu quét."
+                : "Chọn ít nhất 1 nguồn — bấm Tất cả nếu chưa chọn."}
+          </p>
+        )}
       </form>
 
       <StatusBanner
@@ -375,10 +398,25 @@ export default function App() {
         <p className="text-[11px] text-ink-700/60">
           {papers.length > 0 ? `${papers.length} bài báo` : "Chưa có kết quả"}
         </p>
-        <ExportButton
-          papers={papers}
-          disabled={session.status === "streaming" && papers.length === 0}
-        />
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={!papers.length || isStreaming}
+            onClick={handleOpenReview}
+            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium
+              border border-ink-200 bg-white/70 text-ink-800
+              hover:bg-accent-soft hover:border-accent/40
+              disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Dedup thủ công + screening title/abstract"
+          >
+            <ClipboardList size={11} />
+            Screening
+          </button>
+          <ExportButton
+            papers={papers}
+            disabled={session.status === "streaming" && papers.length === 0}
+          />
+        </div>
       </div>
 
       <div className="mt-1 flex-1 overflow-y-auto scrollbar-thin mx-3 mb-3 rounded border border-ink-200/80 bg-white/70 shadow-panel">
@@ -386,7 +424,7 @@ export default function App() {
           <div className="flex h-full min-h-[120px] items-center justify-center px-6 text-center">
             <p className="text-[12px] text-ink-700/45 leading-relaxed">
               Nhập keywords và chọn nguồn để bắt đầu pipeline
-              fetch → dedup → PICO.
+              fetch → screening → PICO.
             </p>
           </div>
         ) : (

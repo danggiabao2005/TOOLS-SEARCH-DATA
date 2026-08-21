@@ -15,6 +15,8 @@ from app.api.schemas import (
     CompleteEvent,
     PaperWithPICO,
     PicoSearchRequest,
+    ScreenRequest,
+    ScreeningDecision,
     StatusEvent,
     TaskCreateResponse,
     TaskStage,
@@ -24,6 +26,7 @@ from app.services.dedup import DeduplicationEngine
 from app.services.extractor import PICOExtractor
 from app.services.fetcher import MultiSourceFetcher
 from app.services.open_access import OpenAccessEnricher
+from app.services.screener import TitleAbstractScreener
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +101,13 @@ async def _run_pipeline(task_id: str) -> None:
             ),
         )
 
-        unique_papers = deduper.deduplicate(raw_papers)
-        task.message = f"Hoàn tất lọc trùng: {len(unique_papers)} bài báo duy nhất."
+        clusters = deduper.cluster(raw_papers)
+        dup_n = sum(1 for _cid, _reason, members in clusters if len(members) > 1)
+        merged_papers = [deduper.merge_group(members) for _cid, _reason, members in clusters]
+        task.message = (
+            f"Gom trùng: {len(raw_papers)} bài → {len(merged_papers)} nhóm "
+            f"({dup_n} nhóm trùng — giữ bản gốc để bạn chọn)."
+        )
         await _emit(
             task_id,
             "status",
@@ -123,7 +131,7 @@ async def _run_pipeline(task_id: str) -> None:
         )
         need_oa = sum(
             1
-            for p in unique_papers
+            for p in merged_papers
             if (not p.url) or len((p.abstract or "").strip()) < 100
         )
         task.message = (
@@ -152,15 +160,17 @@ async def _run_pipeline(task_id: str) -> None:
                     ).model_dump(mode="json"),
                 )
 
-        unique_papers = await enricher.enrich(unique_papers, on_progress=_oa_progress)
+        unique_papers = await enricher.enrich(merged_papers, on_progress=_oa_progress)
 
         if task.cancelled:
             return
 
-        # Phase 5 + 6: Extract & stream each paper
+        # Phase 5 + 6: Extract once per cluster, stream every original record
         task.stage = TaskStage.EXTRACTING
         total = len(unique_papers)
-        for idx, paper in enumerate(unique_papers):
+        for idx, ((cluster_id, dup_reason, members), enriched) in enumerate(
+            zip(clusters, unique_papers)
+        ):
             if task.cancelled:
                 task.stage = TaskStage.CANCELLED
                 await _emit(
@@ -183,32 +193,39 @@ async def _run_pipeline(task_id: str) -> None:
                 ).model_dump(mode="json"),
             )
 
-            sources = [s for s in paper.source.split("+") if s]
-            paper_out = PaperWithPICO(
-                doi=paper.doi,
-                title=paper.title,
-                authors=paper.authors,
-                year=paper.year,
-                abstract=paper.abstract,
-                source=sources[0] if sources else paper.source,
-                sources=sources or [paper.source],
-                url=paper.url,
-                venue=paper.venue,
-                pmid=paper.pmid,
-                arxiv_id=paper.arxiv_id,
-            )
+            pico = None
+            extraction_error: Optional[str] = None
             try:
-                paper_out.pico = await extractor.extract(paper)
+                pico = await extractor.extract(enriched)
             except Exception as exc:  # noqa: BLE001
-                paper_out.extraction_error = str(exc)
+                extraction_error = str(exc)
                 logger.exception("Extraction error: %s", exc)
 
-            task.papers.append(paper_out)
-            await _emit(
-                task_id,
-                "paper_processed",
-                paper_out.model_dump(mode="json"),
-            )
+            for member in members:
+                sources = [s for s in member.source.split("+") if s]
+                paper_out = PaperWithPICO(
+                    doi=member.doi or enriched.doi,
+                    title=member.title,
+                    authors=member.authors or enriched.authors,
+                    year=member.year or enriched.year,
+                    abstract=member.abstract or enriched.abstract,
+                    source=sources[0] if sources else member.source,
+                    sources=sources or [member.source],
+                    url=member.url or enriched.url,
+                    venue=member.venue or enriched.venue,
+                    pmid=member.pmid or enriched.pmid,
+                    arxiv_id=member.arxiv_id or enriched.arxiv_id,
+                    pico=pico,
+                    extraction_error=extraction_error,
+                    dup_cluster_id=cluster_id,
+                    dup_reason=dup_reason or None,
+                )
+                task.papers.append(paper_out)
+                await _emit(
+                    task_id,
+                    "paper_processed",
+                    paper_out.model_dump(mode="json"),
+                )
 
         task.stage = TaskStage.COMPLETE
         task.message = "Hoàn tất."
@@ -328,3 +345,49 @@ async def cancel_task(task_id: str) -> dict[str, str]:
         ),
     )
     return {"task_id": task_id, "status": "cancelled"}
+
+
+@router.post("/screening/title-abstract")
+async def screen_title_abstract(request: ScreenRequest) -> EventSourceResponse:
+    screener = TitleAbstractScreener()
+
+    async def event_generator() -> AsyncIterator[dict[str, str]]:
+        total = len(request.papers)
+        include = exclude = maybe = 0
+        for idx, paper in enumerate(request.papers):
+            yield {
+                "event": "status",
+                "data": json.dumps(
+                    {
+                        "stage": "screening",
+                        "message": f"AI screening ({idx + 1}/{total})…",
+                        "progress": (idx + 1) / max(total, 1),
+                    }
+                ),
+            }
+            decision: ScreeningDecision = await screener.screen(paper, request.criteria)
+            if decision.verdict.value == "include":
+                include += 1
+            elif decision.verdict.value == "exclude":
+                exclude += 1
+            else:
+                maybe += 1
+            yield {
+                "event": "decision",
+                "data": json.dumps(decision.model_dump(mode="json")),
+            }
+            await asyncio.sleep(0.3)
+        yield {
+            "event": "complete",
+            "data": json.dumps(
+                {
+                    "total": total,
+                    "include": include,
+                    "exclude": exclude,
+                    "maybe": maybe,
+                    "status": "done",
+                }
+            ),
+        }
+
+    return EventSourceResponse(event_generator())
