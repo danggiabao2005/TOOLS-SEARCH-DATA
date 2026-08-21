@@ -565,60 +565,130 @@ class MultiSourceFetcher:
             )
         return papers
 
-    # ── SerpAPI (Google Scholar fallback) ───────────────────────────────────
+    # ── Google Scholar via SerpAPI ──────────────────────────────────────────
+    # GET https://serpapi.com/search.json?engine=google_scholar&q=...&api_key=...
 
     async def _fetch_serpapi(
         self, client: httpx.AsyncClient, request: PicoSearchRequest
     ) -> list[RawPaper]:
+        if not self.settings.serpapi_key:
+            logger.warning("SERPAPI_KEY missing — skip Google Scholar")
+            return []
+
         cap = min(self._source_cap(request), SCHOLAR_HARD_CAP)
         papers: list[RawPaper] = []
         start = 0
+
         while len(papers) < cap:
+            # SerpAPI Google Scholar: max 20 results per page
+            page_size = min(20, cap - len(papers))
             params: dict[str, Any] = {
                 "engine": "google_scholar",
                 "q": request.keywords,
                 "api_key": self.settings.serpapi_key,
-                "num": min(20, cap - len(papers)),
+                "num": page_size,
                 "start": start,
             }
-            if request.year_min:
+            if request.year_min is not None:
                 params["as_ylo"] = request.year_min
-            if request.year_max:
+            if request.year_max is not None:
                 params["as_yhi"] = request.year_max
 
             resp = await self._request_with_retry(
-                client, "GET", SERPAPI_URL, params=params
+                client,
+                "GET",
+                SERPAPI_URL,
+                params=params,
             )
-            results = resp.json().get("organic_results", []) or []
+            payload = resp.json()
+            if payload.get("error"):
+                logger.warning("SerpAPI error: %s", payload["error"])
+                break
+
+            results = payload.get("organic_results") or []
             if not results:
                 break
+
             for item in results:
-                pub_info = item.get("publication_info") or {}
-                authors_raw = pub_info.get("authors") or []
-                if isinstance(authors_raw, list):
-                    authors = [
-                        a.get("name", "").strip()
-                        for a in authors_raw
-                        if isinstance(a, dict) and a.get("name")
-                    ]
-                else:
-                    authors = []
-                year = self._parse_year(str(pub_info.get("summary", "")))
-                papers.append(
-                    RawPaper(
-                        doi=None,
-                        title=(item.get("title") or "Untitled").strip(),
-                        authors=authors,
-                        year=year,
-                        abstract=item.get("snippet"),
-                        source=SourceName.GOOGLE_SCHOLAR.value,
-                        url=item.get("link"),
-                    )
-                )
+                paper = self._parse_serpapi_scholar_item(item)
+                if paper is None:
+                    continue
+                if request.year_min and paper.year and paper.year < request.year_min:
+                    continue
+                if request.year_max and paper.year and paper.year > request.year_max:
+                    continue
+                papers.append(paper)
+
             start += len(results)
-            if len(results) < 10:
+            # SerpAPI often returns fewer than requested near the end
+            if len(results) < page_size:
                 break
+            await asyncio.sleep(0.25)
+
         return papers[:cap]
+
+    @staticmethod
+    def _parse_serpapi_scholar_item(item: dict[str, Any]) -> Optional[RawPaper]:
+        title = (item.get("title") or "").strip()
+        if not title:
+            return None
+
+        pub_info = item.get("publication_info") or {}
+        authors_raw = pub_info.get("authors") or []
+        authors: list[str] = []
+        if isinstance(authors_raw, list):
+            for a in authors_raw:
+                if isinstance(a, dict) and a.get("name"):
+                    authors.append(str(a["name"]).strip())
+                elif isinstance(a, str) and a.strip():
+                    authors.append(a.strip())
+
+        summary = str(pub_info.get("summary") or "")
+        year = MultiSourceFetcher._parse_year(summary)
+        if year is None:
+            year = MultiSourceFetcher._parse_year(item.get("publication_info"))
+
+        # Prefer PDF / primary resource link when present
+        resource = item.get("resources") or []
+        url = item.get("link")
+        if isinstance(resource, list) and resource:
+            first = resource[0] if isinstance(resource[0], dict) else {}
+            url = first.get("link") or url
+
+        doi = MultiSourceFetcher._extract_doi_from_text(
+            " ".join(
+                filter(
+                    None,
+                    [
+                        item.get("link"),
+                        summary,
+                        item.get("snippet"),
+                    ],
+                )
+            )
+        )
+
+        return RawPaper(
+            doi=doi,
+            title=title,
+            authors=authors,
+            year=year,
+            abstract=item.get("snippet"),
+            source=SourceName.GOOGLE_SCHOLAR.value,
+            url=url,
+            venue=summary or None,
+        )
+
+    @staticmethod
+    def _extract_doi_from_text(text: Optional[str]) -> Optional[str]:
+        if not text:
+            return None
+        match = re.search(
+            r"\b(10\.\d{4,9}/[-._;()/:A-Z0-9]+)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+        return match.group(1).rstrip(".)]") if match else None
 
     # ── IEEE Xplore ─────────────────────────────────────────────────────────
 
