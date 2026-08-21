@@ -163,6 +163,7 @@ Load unpacked trong `chrome://extensions` → **Load unpacked** → chọn thư 
 - **Idle** — form sẵn sàng
 - **Streaming** — progress + paper cards tăng dần; nút Hủy (AbortController)
 - **Completed / Error** — export CSV / JSON / RIS
+- **Nhập CSV** — popup hoặc trang Screening: kéo thả / chọn file CSV (cần cột `title`; nên có `authors`, `year`, `doi`, `abstract`, `url`). Hệ thống gom trùng rồi mở vòng **tiêu chí → dedup → AI screening**. File xuất của tool (`pico-export-*.csv`, `slr-dedup-*.csv`, `slr-screening-r1-*.csv`) cũng đọc được.
 
 API mặc định: `http://127.0.0.1:8000` (chỉnh trong popup → API endpoint).
 

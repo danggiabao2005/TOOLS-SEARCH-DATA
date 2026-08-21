@@ -304,6 +304,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     } else if (message.type === "OPEN_REVIEW") {
       await chrome.tabs.create({ url: chrome.runtime.getURL("review.html") });
       sendResponse({ ok: true });
+    } else if (message.type === "IMPORT_PAPERS") {
+      const papers = Array.isArray(message.papers) ? message.papers : [];
+      if (!papers.length) {
+        sendResponse({ ok: false, error: "CSV không có bài nào." });
+        return;
+      }
+      await saveSession({
+        status: "completed",
+        taskId: null,
+        papers,
+        message: `Đã nhập ${papers.length} bài từ CSV. Mở Screening để làm các vòng.`,
+        error: null,
+      });
+      const stored = await chrome.storage.local.get(REVIEW_KEY);
+      const saved = stored[REVIEW_KEY] || {};
+      await chrome.storage.local.set({
+        [REVIEW_KEY]: {
+          criteria: saved.criteria,
+          phase: "criteria",
+          keepByCluster: {},
+          decisions: {},
+          screenIndex: 0,
+          aiStatus: "idle",
+          aiMessage: "",
+        },
+      });
+      sendResponse({ ok: true, count: papers.length });
     } else {
       sendResponse({ ok: false, error: "Unknown message" });
     }

@@ -21,6 +21,12 @@ import {
 } from "./criteria.js";
 import { exportDedupCSV, exportScreeningCSV } from "../popup/export.js";
 import { readSSE } from "./sse.js";
+import CsvDrop from "./CsvDrop.jsx";
+import {
+  clusterImportedPapers,
+  parseCsvFileText,
+  readFileAsText,
+} from "./csvImport.js";
 
 const REVIEW_KEY = "pico_review";
 const SESSION_KEY = "pico_session";
@@ -106,11 +112,15 @@ export default function ReviewApp() {
   const [customKind, setCustomKind] = useState("IC");
   const [customMeaning, setCustomMeaning] = useState("");
   const [aiProgress, setAiProgress] = useState(0);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importErr, setImportErr] = useState("");
   const aiLock = useRef(false);
+  const skipReviewEcho = useRef(false);
 
   const persist = useCallback((patch) => {
     setReview((prev) => {
       const next = { ...prev, ...patch };
+      skipReviewEcho.current = true;
       saveLocal(REVIEW_KEY, next);
       return next;
     });
@@ -140,6 +150,18 @@ export default function ReviewApp() {
       if (changes[SESSION_KEY]?.newValue?.papers) {
         setPapers(changes[SESSION_KEY].newValue.papers);
       }
+      if (changes[REVIEW_KEY]?.newValue) {
+        if (skipReviewEcho.current) {
+          skipReviewEcho.current = false;
+          return;
+        }
+        const saved = changes[REVIEW_KEY].newValue;
+        setReview({
+          ...emptyReview(),
+          ...saved,
+          criteria: mergeMissingDefaults(saved.criteria),
+        });
+      }
     };
     chrome.storage.onChanged.addListener(onChange);
     return () => chrome.storage.onChanged.removeListener(onChange);
@@ -167,6 +189,12 @@ export default function ReviewApp() {
 
   const goDedup = () => persist({ phase: "dedup" });
   const goScreen = () => {
+    if (resolved.kept.length > 300) {
+      window.alert(
+        `AI screening tối đa 300 bài (hiện giữ ${resolved.kept.length}). Hãy loại thêm bài trùng ở vòng dedup.`
+      );
+      return;
+    }
     const { discarded } = resolveKept(papers, review.keepByCluster);
     const decisions = { ...review.decisions };
     for (const p of discarded) {
@@ -345,17 +373,56 @@ export default function ReviewApp() {
     persist({ screenIndex: next });
   };
 
+  const handleCsvFile = async (file) => {
+    setImportErr("");
+    if (
+      papers.length &&
+      !window.confirm(
+        `Thay ${papers.length} bài hiện có bằng CSV mới và làm lại từ vòng tiêu chí?`
+      )
+    ) {
+      return;
+    }
+    setImportBusy(true);
+    try {
+      const text = await readFileAsText(file);
+      const { papers: parsed } = parseCsvFileText(text);
+      const clustered = await clusterImportedPapers(parsed, apiBase);
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: "IMPORT_PAPERS", papers: clustered }, (res) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          if (!res?.ok) {
+            reject(new Error(res?.error || "Không lưu được CSV."));
+            return;
+          }
+          resolve(res);
+        });
+      });
+      setPapers(clustered);
+    } catch (err) {
+      setImportErr(err?.message || String(err));
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
   if (!ready) {
     return <p className="p-8 text-sm text-ink-700/60">Đang tải…</p>;
   }
 
   if (!papers.length) {
     return (
-      <div className="mx-auto max-w-xl px-6 py-16 text-center">
-        <h1 className="font-display text-2xl font-bold">Vòng screening</h1>
-        <p className="mt-3 text-sm text-ink-700/70">
-          Chưa có bài báo. Quét từ popup extension trước, rồi mở lại trang này.
+      <div className="mx-auto max-w-xl px-6 py-16">
+        <h1 className="text-center font-display text-2xl font-bold">Vòng screening</h1>
+        <p className="mt-3 text-center text-sm text-ink-700/70">
+          Quét từ popup, hoặc bỏ file CSV vào để làm tiêu chí → dedup → AI screening.
         </p>
+        <div className="mt-6">
+          <CsvDrop onFile={handleCsvFile} busy={importBusy} error={importErr} />
+        </div>
       </div>
     );
   }
@@ -369,6 +436,14 @@ export default function ReviewApp() {
             <p className="mt-1 text-[11px] text-ink-700/60">
               {papers.length} bài · Title / Abstract
             </p>
+          </div>
+          <div className="flex min-w-[220px] max-w-sm flex-col gap-1.5">
+            <CsvDrop
+              compact
+              onFile={handleCsvFile}
+              busy={importBusy}
+              error={importErr}
+            />
           </div>
           <div className="flex flex-wrap gap-1.5">
             <StepPill n="1" label="Tiêu chí" active={review.phase === "criteria"} done={review.phase !== "criteria"} />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Search,
   Loader2,
@@ -8,9 +8,15 @@ import {
   AlertCircle,
   CheckCircle2,
   ClipboardList,
+  FileSpreadsheet,
 } from "lucide-react";
 import PaperCard from "./components/PaperCard.jsx";
 import ExportButton from "./components/ExportButton.jsx";
+import {
+  clusterImportedPapers,
+  parseCsvFileText,
+  readFileAsText,
+} from "../review/csvImport.js";
 
 const ALL_SOURCES = [
   { id: "ieee_xplore", label: "IEEE Xplore", hint: "SE conference: ICSE, TSE, ASE" },
@@ -101,6 +107,8 @@ export default function App() {
     papers: [],
     error: null,
   });
+  const csvInputRef = useRef(null);
+  const [importBusy, setImportBusy] = useState(false);
 
   const refreshSession = useCallback(() => {
     chrome.runtime.sendMessage({ type: "GET_SESSION" }, (res) => {
@@ -198,6 +206,46 @@ export default function App() {
 
   const handleOpenReview = () => {
     chrome.tabs.create({ url: chrome.runtime.getURL("review.html") });
+  };
+
+  const handleImportCsv = async (file) => {
+    if (!file || isStreaming || importBusy) return;
+    const existing = session.papers?.length || 0;
+    if (
+      existing &&
+      !window.confirm(`Thay ${existing} bài hiện có bằng CSV và mở các vòng screening?`)
+    ) {
+      return;
+    }
+    setImportBusy(true);
+    try {
+      const text = await readFileAsText(file);
+      const { papers: parsed } = parseCsvFileText(text);
+      const clustered = await clusterImportedPapers(parsed, apiBase.trim() || DEFAULT_API);
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: "IMPORT_PAPERS", papers: clustered }, (res) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          if (!res?.ok) {
+            reject(new Error(res?.error || "Không lưu được CSV."));
+            return;
+          }
+          resolve(res);
+        });
+      });
+      chrome.tabs.create({ url: chrome.runtime.getURL("review.html") });
+    } catch (err) {
+      setSession((prev) => ({
+        ...prev,
+        status: "error",
+        error: err?.message || String(err),
+        message: err?.message || String(err),
+      }));
+    } finally {
+      setImportBusy(false);
+    }
   };
 
   const papers = session.papers || [];
@@ -399,6 +447,30 @@ export default function App() {
           {papers.length > 0 ? `${papers.length} bài báo` : "Chưa có kết quả"}
         </p>
         <div className="flex items-center gap-1">
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,text/csv,text/plain"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) handleImportCsv(file);
+            }}
+          />
+          <button
+            type="button"
+            disabled={isStreaming || importBusy}
+            onClick={() => csvInputRef.current?.click()}
+            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium
+              border border-ink-200 bg-white/70 text-ink-800
+              hover:bg-accent-soft hover:border-accent/40
+              disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Nhập CSV rồi làm các vòng screening"
+          >
+            {importBusy ? <Loader2 size={11} className="animate-spin" /> : <FileSpreadsheet size={11} />}
+            {importBusy ? "Đang nhập…" : "Nhập CSV"}
+          </button>
           <button
             type="button"
             disabled={!papers.length || isStreaming}
@@ -423,8 +495,7 @@ export default function App() {
         {papers.length === 0 ? (
           <div className="flex h-full min-h-[120px] items-center justify-center px-6 text-center">
             <p className="text-[12px] text-ink-700/45 leading-relaxed">
-              Nhập keywords và chọn nguồn để bắt đầu pipeline
-              fetch → screening → PICO.
+              Quét theo keywords, hoặc bấm <span className="font-medium text-ink-700/70">Nhập CSV</span> rồi làm các vòng screening.
             </p>
           </div>
         ) : (
