@@ -12,9 +12,11 @@ from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.schemas import (
+    ClusterImportRequest,
     CompleteEvent,
     PaperWithPICO,
     PicoSearchRequest,
+    RawPaper,
     ScreenRequest,
     ScreeningDecision,
     StatusEvent,
@@ -391,3 +393,49 @@ async def screen_title_abstract(request: ScreenRequest) -> EventSourceResponse:
         }
 
     return EventSourceResponse(event_generator())
+
+
+@router.post("/dedup/cluster")
+async def cluster_imported_papers(request: ClusterImportRequest) -> dict[str, Any]:
+    """Gán dup_cluster_id cho danh sách bài nhập từ CSV (không gọi LLM)."""
+    raw: list[RawPaper] = []
+    for item in request.papers:
+        src = item.source or (item.sources[0] if item.sources else "csv")
+        raw.append(
+            RawPaper(
+                doi=item.doi,
+                title=item.title,
+                authors=item.authors,
+                year=item.year,
+                abstract=item.abstract,
+                source=src,
+                url=item.url,
+                venue=item.venue,
+            )
+        )
+
+    clustered = DeduplicationEngine().cluster(raw)
+    index_of = {id(paper): idx for idx, paper in enumerate(raw)}
+    out: list[dict[str, Any]] = []
+    for cluster_id, reason, members in clustered:
+        for member in members:
+            idx = index_of[id(member)]
+            orig = request.papers[idx]
+            sources = orig.sources or ([orig.source] if orig.source else ["csv"])
+            out.append(
+                {
+                    "id": orig.id or str(uuid4()),
+                    "title": orig.title,
+                    "authors": orig.authors,
+                    "year": orig.year,
+                    "doi": orig.doi,
+                    "url": orig.url,
+                    "abstract": orig.abstract,
+                    "source": sources[0] if sources else "csv",
+                    "sources": sources,
+                    "venue": orig.venue,
+                    "dup_cluster_id": cluster_id,
+                    "dup_reason": reason or None,
+                }
+            )
+    return {"count": len(out), "papers": out}

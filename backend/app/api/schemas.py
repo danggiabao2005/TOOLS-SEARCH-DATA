@@ -185,6 +185,25 @@ class ScreenRequest(BaseModel):
     papers: list[ScreenPaperIn] = Field(..., min_length=1, max_length=300)
 
 
+class ImportPaperIn(BaseModel):
+    id: Optional[str] = None
+    title: str
+    abstract: Optional[str] = None
+    year: Optional[int] = None
+    authors: list[str] = Field(default_factory=list)
+    doi: Optional[str] = None
+    url: Optional[str] = None
+    source: str = "csv"
+    sources: list[str] = Field(default_factory=list)
+    venue: Optional[str] = None
+    dup_cluster_id: Optional[str] = None
+    dup_reason: Optional[str] = None
+
+
+class ClusterImportRequest(BaseModel):
+    papers: list[ImportPaperIn] = Field(..., min_length=1, max_length=2000)
+
+
 class ScreeningDecision(BaseModel):
     paper_id: str = ""
     verdict: ScreeningVerdict
