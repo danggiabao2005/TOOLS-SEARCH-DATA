@@ -183,9 +183,6 @@ export function parseCsvFileText(text) {
   if (!papers.length) {
     throw new Error("CSV không có cột title / không đọc được bài nào.");
   }
-  if (papers.length > 2000) {
-    throw new Error("CSV quá lớn (tối đa 2000 bài).");
-  }
   return { papers, extras };
 }
 

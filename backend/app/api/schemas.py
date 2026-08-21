@@ -182,7 +182,7 @@ class ScreenPaperIn(BaseModel):
 
 class ScreenRequest(BaseModel):
     criteria: list[ScreenCriterion] = Field(..., min_length=1)
-    papers: list[ScreenPaperIn] = Field(..., min_length=1, max_length=300)
+    papers: list[ScreenPaperIn] = Field(..., min_length=1)
 
 
 class ImportPaperIn(BaseModel):
@@ -201,7 +201,7 @@ class ImportPaperIn(BaseModel):
 
 
 class ClusterImportRequest(BaseModel):
-    papers: list[ImportPaperIn] = Field(..., min_length=1, max_length=2000)
+    papers: list[ImportPaperIn] = Field(..., min_length=1)
 
 
 class ScreeningDecision(BaseModel):

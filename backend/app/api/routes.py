@@ -378,7 +378,6 @@ async def screen_title_abstract(request: ScreenRequest) -> EventSourceResponse:
                 "event": "decision",
                 "data": json.dumps(decision.model_dump(mode="json")),
             }
-            await asyncio.sleep(0.3)
         yield {
             "event": "complete",
             "data": json.dumps(

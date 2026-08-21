@@ -189,12 +189,6 @@ export default function ReviewApp() {
 
   const goDedup = () => persist({ phase: "dedup" });
   const goScreen = () => {
-    if (resolved.kept.length > 300) {
-      window.alert(
-        `AI screening tối đa 300 bài (hiện giữ ${resolved.kept.length}). Hãy loại thêm bài trùng ở vòng dedup.`
-      );
-      return;
-    }
     const { discarded } = resolveKept(papers, review.keepByCluster);
     const decisions = { ...review.decisions };
     for (const p of discarded) {
